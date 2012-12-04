@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -160,7 +160,7 @@ public class PowerManagerService extends IPowerManager.Stub
 
     private boolean mDoneBooting = false;
     private boolean mBootCompleted = false;
-    private int mStayOnConditions = 0;
+    private int mStayOnConditions = 0; //用于控制当插上USB时，手机是否保持唤醒状态
     private final int[] mBroadcastQueue = new int[] { -1, -1, -1 };
     private final int[] mBroadcastWhy = new int[3];
     private boolean mPreparingForScreenOn = false;
@@ -179,7 +179,7 @@ public class PowerManagerService extends IPowerManager.Stub
     private boolean mProximitySensorActive = false;
     private int mProximityPendingValue = -1; // -1 == nothing, 0 == inactive, 1 == active
     private long mLastProximityEventTime;
-    private int mScreenOffTimeoutSetting;
+    private int mScreenOffTimeoutSetting; //屏幕关闭的延迟时间，默认是15s，可以通过系统属性配置
     private int mMaximumScreenOffTimeout = Integer.MAX_VALUE;
     private int mKeylightDelay;
     private int mDimDelay;
@@ -499,8 +499,8 @@ public class PowerManagerService extends IPowerManager.Stub
 
     void init(Context context, LightsService lights, IActivityManager activity,
             BatteryService battery) {
-        mLightsService = lights;
-        mContext = context;
+        mLightsService = lights; //貌似在这里赋值以后就再也没有使用过，但下面的mLcdLight mButtonLight mKeyboardLight mAttentionLight都有使用
+        mContext = context; 
         mActivityService = activity;
         mBatteryStats = BatteryStatsService.getService();
         mBatteryService = battery;
@@ -510,7 +510,7 @@ public class PowerManagerService extends IPowerManager.Stub
         mKeyboardLight = lights.getLight(LightsService.LIGHT_ID_KEYBOARD);
         mAttentionLight = lights.getLight(LightsService.LIGHT_ID_ATTENTION);
 
-        nativeInit();
+        nativeInit();  //用的是frameworks/base/services/jni/com_android_server_PowerManagerService.cpp中的方法，需要JNI的相关知识
         synchronized (mLocks) {
             updateNativePowerStateLocked();
         }
@@ -702,6 +702,7 @@ public class PowerManagerService extends IPowerManager.Stub
     private void updateWakeLockLocked() {
         if (mStayOnConditions != 0 && mBatteryService.isPowered(mStayOnConditions)) {
             // keep the device on if we're plugged in and mStayOnWhilePluggedIn is set.
+	    // PMS内部的非同步锁
             mStayOnWhilePluggedInScreenDimLock.acquire();
             mStayOnWhilePluggedInPartialLock.acquire();
         } else {

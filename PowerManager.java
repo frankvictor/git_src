@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -226,6 +226,7 @@ public class PowerManager
 
         WakeLock(int flags, String tag)
         {
+		
             switch (flags & LOCK_MASK) {
             case PARTIAL_WAKE_LOCK:
             case SCREEN_DIM_WAKE_LOCK:

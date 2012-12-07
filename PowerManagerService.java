@@ -46,7 +46,7 @@ import android.os.IBinder;
 import android.os.IPowerManager;
 import android.os.LocalPowerManager;
 import android.os.Power;
-import android.os.PowerManager;
+import android.os.PowerManager; //使用了该类中对WakeLock类型的定义如PowerManager.PARTIAL_WAKE_LOCK等
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
@@ -479,7 +479,10 @@ public class PowerManagerService extends IPowerManager.Stub
     }
 
     PowerManagerService() {
-        // Hack to get our uid...  should have a func for this.
+        //Hack to get our uid...  should have a func for this.
+		//个人认为这里是没有必要调用Binder.clearCallingIdentity()
+		//和restoreCallingIdentity(token)的，Process.myUid()应该和
+		//Binder无关。
         long token = Binder.clearCallingIdentity();
         MY_UID = Process.myUid();
         MY_PID = Process.myPid();
@@ -569,7 +572,7 @@ public class PowerManagerService extends IPowerManager.Stub
     }
 
     void initInThread() {
-        mHandler = new Handler();
+        mHandler = new Handler(); //Handler的默认构造器，会自动与本线程中的Looper关联
 
         mBroadcastWakeLock = new UnsynchronizedWakeLock(
                                 PowerManager.PARTIAL_WAKE_LOCK, "sleep_broadcast", true);
@@ -710,7 +713,11 @@ public class PowerManagerService extends IPowerManager.Stub
             mStayOnWhilePluggedInPartialLock.release();
         }
     }
-
+	
+	/**
+	 * 判断是否是Screen锁，除了PartialWakeLock，其他的全部都是Screen锁，
+	 * 因为它们都涉及到屏幕的操作（点亮或者关闭）
+	 */
     private boolean isScreenLock(int flags)
     {
         int n = flags & LOCK_MASK;
@@ -729,17 +736,19 @@ public class PowerManagerService extends IPowerManager.Stub
     }
 
     public void acquireWakeLock(int flags, IBinder lock, String tag, WorkSource ws) {
-        int uid = Binder.getCallingUid();
-        int pid = Binder.getCallingPid();
-        if (uid != Process.myUid()) {
+        int uid = Binder.getCallingUid(); //得到调用者的用户ID
+        int pid = Binder.getCallingPid(); //得到调用者的线程ID
+        if (uid != Process.myUid()) { //若调用者和该服务不属于同一个用户，则需要检查权限
+		    //TODO: 这里如果检查不通过会怎么处理？
             mContext.enforceCallingOrSelfPermission(android.Manifest.permission.WAKE_LOCK, null);
         }
-        if (ws != null) {
+        if (ws != null) {//如果ws不为空，则检查调用进程是否有UPDATE_DEVICE_STATS的权限。 其实PM中传过来的ws总是空的，所以这3行代码可以不理会（当前版本）
             enforceWakeSourcePermission(uid, pid);
         }
+		//这里是说明PMS调用了本身的服务么，而且是通过Binder?
         long ident = Binder.clearCallingIdentity();
         try {
-            synchronized (mLocks) {
+            synchronized (mLocks) { //这里需要同步，是因为可能同时有多个请求过来。系统PM实例只有一个，但是PM中的wakelock类的实例会有很多个，一般一个APP一个至少
                 acquireWakeLockLocked(flags, lock, uid, pid, tag, ws);
             }
         } finally {
@@ -785,22 +794,22 @@ public class PowerManagerService extends IPowerManager.Stub
 
     public void acquireWakeLockLocked(int flags, IBinder lock, int uid, int pid, String tag,
             WorkSource ws) {
-        if (mSpew) {
+        if (mSpew) { //调试使用的
             Slog.d(TAG, "acquireWakeLock flags=0x" + Integer.toHexString(flags) + " tag=" + tag);
         }
 
-        if (ws != null && ws.size() == 0) {
+        if (ws != null && ws.size() == 0) { //ws肯定为null，可以忽略
             ws = null;
         }
 
-        int index = mLocks.getIndex(lock);
-        WakeLock wl;
-        boolean newlock;
-        boolean diffsource;
-        WorkSource oldsource;
-        if (index < 0) {
-            wl = new WakeLock(flags, lock, tag, uid, pid);
-            switch (wl.flags & LOCK_MASK)
+        int index = mLocks.getIndex(lock); //查找是否已经有对应的锁，没有返回-1
+        WakeLock wl; //存wakelock实例的变量，可能是从mlocks中读取的，也可能需要new，根据下面的if判断决定
+        boolean newlock; 
+        boolean diffsource; //忽略
+        WorkSource oldsource; //忽略
+        if (index < 0) { //需要新建一个锁
+            wl = new WakeLock(flags, lock, tag, uid, pid); //创建一个新的PMS.WakeLock，保存client端传来的参数
+            switch (wl.flags & LOCK_MASK) //过滤非法的bit，其实没有必要，因为PM中已经做过flag的合法性验证了
             {
                 case PowerManager.FULL_WAKE_LOCK:
                     if (mUseSoftwareAutoBrightness) {
@@ -819,6 +828,7 @@ public class PowerManagerService extends IPowerManager.Stub
                 case PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK:
                     break;
                 default:
+					//正常情况下，是不会到这里的
                     // just log and bail.  we're in the server, so don't
                     // throw an exception.
                     Slog.e(TAG, "bad wakelock type for lock '" + tag + "' "
@@ -1515,14 +1525,19 @@ public class PowerManagerService extends IPowerManager.Stub
             }
         }
     };
-
+	/**
+     * 这个函数没有在任何地方用到，可以忽略（当前版本）
+	 */
     void logPointerUpEvent() {
         if (LOG_TOUCH_DOWNS) {
             mTotalTouchDownTime += SystemClock.elapsedRealtime() - mLastTouchDown;
             mLastTouchDown = 0;
         }
     }
-
+	
+	/**
+     * 这个函数没有在任何地方用到，可以忽略（当前版本）
+	 */
     void logPointerDownEvent() {
         if (LOG_TOUCH_DOWNS) {
             // If we are not already timing a down/up sequence
@@ -1643,6 +1658,10 @@ public class PowerManagerService extends IPowerManager.Stub
      * Sanity-check that gets called 5 seconds after any call to
      * preventScreenOn(true).  This ensures that the original call
      * is followed promptly by a call to preventScreenOn(false).
+	 * 上面的英文注释比较清楚了解释了这个函数的功能，它会被
+	 * preventScreenOn(true)注册到mHandler中，并延迟五秒执行，如果
+	 * 5秒内出现了preventScreenOn(false)，那么会从mHandler中将其拿掉
+	 * (preventScreenOn on和false已经成对，因此这个就不需要了)
      */
     private void forceReenableScreen() {
         // We shouldn't get here at all if mPreventScreenOn is false, since
@@ -1666,13 +1685,17 @@ public class PowerManagerService extends IPowerManager.Stub
         preventScreenOn(false);
     }
 
+	/**
+     * 对forceReenableScreen函数的包装，已让其符合Handler的规则，
+	 * 能放到mHandler当中
+	 */
     private Runnable mForceReenableScreenTask = new Runnable() {
             public void run() {
                 forceReenableScreen();
             }
         };
 
-    private int 	(boolean on) {
+    private int setScreenStateLocked(boolean on) {
         if (DEBUG_SCREEN_ON) {
             RuntimeException e = new RuntimeException("here");
             e.fillInStackTrace();
